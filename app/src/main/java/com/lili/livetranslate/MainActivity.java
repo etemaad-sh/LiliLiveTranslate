@@ -93,7 +93,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         TextView title = tv("Lili Live Translate", 30, text, true);
         root.addView(title);
 
-        TextView sub = tv("ترجمه زنده ایتالیایی ↔ فارسی با هندزفری", 16, muted, false);
+        TextView sub = tv("بهینه‌شده برای Pixel 10a / Android 17 — ایتالیایی ↔ فارسی", 16, muted, false);
         sub.setTextDirection(View.TEXT_DIRECTION_RTL);
         add(root, sub, 8);
 
@@ -134,7 +134,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         repeat.setOnClickListener(v -> repeatTranslation());
         add(root, repeat, 10);
 
-        callAssist = button("📞 فعال‌سازی دستیار تماس", Color.rgb(22, 101, 52));
+        callAssist = button("📞 فعال‌سازی دستیار تماس Pixel", Color.rgb(22, 101, 52));
         callAssist.setOnClickListener(v -> enableCallAssistant());
         add(root, callAssist, 18);
 
