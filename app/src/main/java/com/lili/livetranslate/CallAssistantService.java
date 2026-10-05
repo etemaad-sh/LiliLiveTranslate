@@ -63,7 +63,7 @@ public class CallAssistantService extends Service {
 
     private TelephonyManager telephonyManager;
     private PhoneStateListener phoneStateListener;
-    private TelephonyCallback telephonyCallback;
+    private CallStateCallback telephonyCallback;
     private AudioManager audioManager;
 
     private SpeechRecognizer recognizer;
@@ -121,6 +121,13 @@ public class CallAssistantService extends Service {
         }
     }
 
+    private class CallStateCallback extends TelephonyCallback implements TelephonyCallback.CallStateListener {
+        @Override
+        public void onCallStateChanged(int state) {
+            handleCallState(state);
+        }
+    }
+
     private void monitorCalls() {
         if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
             Toast.makeText(this, "مجوز Phone State داده نشده است.", Toast.LENGTH_LONG).show();
@@ -130,12 +137,7 @@ public class CallAssistantService extends Service {
         telephonyManager = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            telephonyCallback = new TelephonyCallback() implements TelephonyCallback.CallStateListener {
-                @Override
-                public void onCallStateChanged(int state) {
-                    handleCallState(state);
-                }
-            };
+            telephonyCallback = new CallStateCallback();
             telephonyManager.registerTelephonyCallback(getMainExecutor(), telephonyCallback);
         } else {
             phoneStateListener = new PhoneStateListener() {
