@@ -48,11 +48,11 @@ jobs:
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/debug/app-debug.apk LiliLiveTranslate-v1.0.apk
+        run: cp app/build/outputs/apk/debug/app-debug.apk LiliLiveTranslate-v1.1.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LiliLiveTranslate-v1.0
-          path: LiliLiveTranslate-v1.0.apk
+          name: LiliLiveTranslate-v1.1
+          path: LiliLiveTranslate-v1.1.apk
           retention-days: 14
