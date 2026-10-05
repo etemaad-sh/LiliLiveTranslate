@@ -11,6 +11,8 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.net.Uri;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -22,6 +24,7 @@ import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.telephony.PhoneStateListener;
+import android.telephony.TelephonyCallback;
 import android.telephony.TelephonyManager;
 import android.view.Gravity;
 import android.view.View;
@@ -60,6 +63,8 @@ public class CallAssistantService extends Service {
 
     private TelephonyManager telephonyManager;
     private PhoneStateListener phoneStateListener;
+    private TelephonyCallback telephonyCallback;
+    private AudioManager audioManager;
 
     private SpeechRecognizer recognizer;
     private Translator translator;
@@ -75,6 +80,7 @@ public class CallAssistantService extends Service {
         startForeground(NOTIFICATION_ID, buildNotification());
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         prepareTranslator();
         initRecognizer();
         monitorCalls();
@@ -122,26 +128,64 @@ public class CallAssistantService extends Service {
         }
 
         telephonyManager = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
-        phoneStateListener = new PhoneStateListener() {
-            @Override
-            public void onCallStateChanged(int state, String phoneNumber) {
-                super.onCallStateChanged(state, phoneNumber);
 
-                if (state == TelephonyManager.CALL_STATE_RINGING) {
-                    callActive = true;
-                    showOverlay("📞 تماس ورودی");
-                } else if (state == TelephonyManager.CALL_STATE_OFFHOOK) {
-                    callActive = true;
-                    showOverlay("📞 تماس در حال انجام");
-                } else if (state == TelephonyManager.CALL_STATE_IDLE) {
-                    callActive = false;
-                    stopListening();
-                    hideOverlay();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            telephonyCallback = new TelephonyCallback() implements TelephonyCallback.CallStateListener {
+                @Override
+                public void onCallStateChanged(int state) {
+                    handleCallState(state);
                 }
-            }
-        };
+            };
+            telephonyManager.registerTelephonyCallback(getMainExecutor(), telephonyCallback);
+        } else {
+            phoneStateListener = new PhoneStateListener() {
+                @Override
+                public void onCallStateChanged(int state, String phoneNumber) {
+                    super.onCallStateChanged(state, phoneNumber);
+                    handleCallState(state);
+                }
+            };
+            telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+        }
+    }
 
-        telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_CALL_STATE);
+    private void handleCallState(int state) {
+        if (state == TelephonyManager.CALL_STATE_RINGING) {
+            callActive = true;
+            showOverlay("📞 تماس ورودی — دستیار آماده است");
+        } else if (state == TelephonyManager.CALL_STATE_OFFHOOK) {
+            callActive = true;
+            showOverlay("📞 تماس در حال انجام");
+            updateAudioRouteHint();
+        } else if (state == TelephonyManager.CALL_STATE_IDLE) {
+            callActive = false;
+            stopListening();
+            hideOverlay();
+        }
+    }
+
+    private boolean hasBluetoothAudioOutput() {
+        if (audioManager == null) return false;
+        AudioDeviceInfo[] outputs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+        for (AudioDeviceInfo d : outputs) {
+            int t = d.getType();
+            if (t == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                    t == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    t == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                    t == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void updateAudioRouteHint() {
+        if (routeHint == null) return;
+        if (hasBluetoothAudioOutput()) {
+            routeHint.setText("🎧 هندزفری/بلوتوث شناسایی شد. اگر ترجمه صوتی چیزی نشنید، محدودیت Android روی صدای تماس علت احتمالی است.");
+        } else {
+            routeHint.setText("🔊 هندزفری شناسایی نشد. تماس را روی Speaker بگذار تا صدای طرف مقابل برای میکروفن گوشی قابل شنیدن باشد.");
+        }
     }
 
     private void prepareTranslator() {
@@ -256,7 +300,7 @@ public class CallAssistantService extends Service {
             listening = true;
             if (listenButton != null) listenButton.setText("■ توقف ترجمه");
             if (callStatus != null) {
-                callStatus.setText("ترجمه زنده آزمایشی روشن شد. اگر چیزی نوشته نشد، Android صدای تماس را مسدود کرده است.");
+                callStatus.setText("حالت جمله‌ای روشن شد؛ اپ صبر می‌کند تا جمله ایتالیایی کامل‌تر شود و بعد فارسی را نمایش می‌دهد. اگر چیزی نوشته نشد، Android دسترسی هم‌زمان به صدای تماس را مسدود کرده است.");
             }
             startListeningCycle();
         }
@@ -265,7 +309,7 @@ public class CallAssistantService extends Service {
     private void stopListening() {
         listening = false;
         if (recognizer != null) recognizer.cancel();
-        if (listenButton != null) listenButton.setText("🎙 ترجمه زنده (آزمایشی)");
+        if (listenButton != null) listenButton.setText("🎙 ترجمه جمله‌ایِ طبیعی (آزمایشی)");
     }
 
     private void showOverlay(String stateText) {
@@ -293,11 +337,12 @@ public class CallAssistantService extends Service {
         callStatus.setTextDirection(View.TEXT_DIRECTION_RTL);
         add(root, callStatus, 6);
 
-        routeHint = tv("اگر هندزفری نداری، تماس را روی Speaker بگذار. دسترسی مستقیم اپ به صدای تماس سیم‌کارت توسط Android محدود است.", 13, muted, false);
+        routeHint = tv("Pixel 10a / Android 17: مسیر صدا را بررسی می‌کنم. اگر هندزفری وصل نباشد، Speaker بهترین حالت آزمایشی برای شنیدن صدای طرف مقابل است.", 13, muted, false);
         routeHint.setTextDirection(View.TEXT_DIRECTION_RTL);
         routeHint.setBackgroundColor(card);
         routeHint.setPadding(dp(10), dp(10), dp(10), dp(10));
         add(root, routeHint, 10);
+        updateAudioRouteHint();
 
         LinearLayout routeRow = new LinearLayout(this);
         routeRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -324,7 +369,7 @@ public class CallAssistantService extends Service {
         translated.setPadding(dp(10), dp(12), dp(10), dp(12));
         add(root, translated, 8);
 
-        listenButton = button("🎙 ترجمه زنده (آزمایشی)", Color.rgb(109, 40, 217));
+        listenButton = button("🎙 ترجمه جمله‌ایِ طبیعی (آزمایشی)", Color.rgb(109, 40, 217));
         listenButton.setOnClickListener(v -> toggleListening());
         add(root, listenButton, 10);
 
@@ -432,8 +477,12 @@ public class CallAssistantService extends Service {
     public void onDestroy() {
         hideOverlay();
 
-        if (telephonyManager != null && phoneStateListener != null) {
-            telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE);
+        if (telephonyManager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && telephonyCallback != null) {
+                telephonyManager.unregisterTelephonyCallback(telephonyCallback);
+            } else if (phoneStateListener != null) {
+                telephonyManager.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE);
+            }
         }
         if (recognizer != null) recognizer.destroy();
         if (translator != null) translator.close();
