@@ -2,8 +2,12 @@ package com.lili.livetranslate;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -34,6 +38,7 @@ import java.util.Locale;
 
 public class MainActivity extends Activity implements TextToSpeech.OnInitListener {
     private static final int REQ_MIC = 1001;
+    private static final int REQ_CALL_ASSIST = 2001;
     private static final String UTT_ID = "lili_translate";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -49,6 +54,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private Button start;
     private Button swap;
     private Button repeat;
+    private Button callAssist;
 
     private boolean itToFa = true;
     private boolean modelReady = false;
@@ -128,7 +134,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         repeat.setOnClickListener(v -> repeatTranslation());
         add(root, repeat, 10);
 
-        TextView tip = tv("روش استفاده: هندزفری را وصل کن، گوشی را نزدیک فرد مقابل بگیر و «شروع شنیدن» را بزن. ترجمه از خروجی صوتی فعال گوشی پخش می‌شود.", 13, muted, false);
+        callAssist = button("📞 فعال‌سازی دستیار تماس", Color.rgb(22, 101, 52));
+        callAssist.setOnClickListener(v -> enableCallAssistant());
+        add(root, callAssist, 18);
+
+        TextView assistInfo = tv("دستیار تماس هنگام زنگ خوردن یا تماس فعال، یک پنل شناور برای ترجمه آزمایشی، یادداشت و افزودن قرار به تقویم نشان می‌دهد. دسترسی مستقیم به صدای تماس سیم‌کارت در Android محدود است؛ ترجمه صوتی بسته به مدل گوشی ممکن است کار نکند.", 13, muted, false);
+        assistInfo.setTextDirection(View.TEXT_DIRECTION_RTL);
+        add(root, assistInfo, 10);
+
+        TextView tip = tv("روش استفاده عادی: هندزفری را وصل کن، گوشی را نزدیک فرد مقابل بگیر و «شروع شنیدن» را بزن. ترجمه از خروجی صوتی فعال گوشی پخش می‌شود.", 13, muted, false);
         tip.setTextDirection(View.TEXT_DIRECTION_RTL);
         add(root, tip, 20);
 
@@ -329,11 +343,61 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
+    private void enableCallAssistant() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "اول اجازه نمایش روی برنامه‌های دیگر را برای Lili Live Translate فعال کن، بعد برگرد و دوباره این دکمه را بزن.", Toast.LENGTH_LONG).show();
+            Intent overlayIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName()));
+            startActivity(overlayIntent);
+            return;
+        }
+
+        ArrayList<String> needed = new ArrayList<>();
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.RECORD_AUDIO);
+        }
+        if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.READ_PHONE_STATE);
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+
+        if (!needed.isEmpty()) {
+            requestPermissions(needed.toArray(new String[0]), REQ_CALL_ASSIST);
+            return;
+        }
+
+        startCallAssistantService();
+    }
+
+    private void startCallAssistantService() {
+        Intent service = new Intent(this, CallAssistantService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(service);
+        } else {
+            startService(service);
+        }
+        Toast.makeText(this, "دستیار تماس فعال شد ✓", Toast.LENGTH_LONG).show();
+        if (callAssist != null) callAssist.setText("📞 دستیار تماس فعال است ✓");
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_MIC && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             requestStart();
+        } else if (requestCode == REQ_CALL_ASSIST) {
+            boolean ok = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) startCallAssistantService();
+            else Toast.makeText(this, "برای دستیار تماس باید مجوزهای درخواست‌شده را بدهی.", Toast.LENGTH_LONG).show();
         }
     }
 
