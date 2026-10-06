@@ -88,7 +88,11 @@ public class CallAssistantService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (callActive) showOverlay("تماس فعال");
+        if (intent != null && "com.lili.livetranslate.TEST_OVERLAY".equals(intent.getAction())) {
+            showOverlay("🧪 پنل تست — Overlay درست کار می‌کند");
+        } else if (callActive) {
+            showOverlay("تماس فعال");
+        }
         return START_STICKY;
     }
 
@@ -423,6 +427,7 @@ public class CallAssistantService extends Service {
             windowManager.addView(overlayView, params);
         } catch (Exception e) {
             overlayView = null;
+            Toast.makeText(this, "پنل شناور باز نشد: " + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show();
         }
     }
 
