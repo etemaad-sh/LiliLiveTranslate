@@ -55,6 +55,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private Button swap;
     private Button repeat;
     private Button callAssist;
+    private TextView callAssistStatus;
 
     private boolean itToFa = true;
     private boolean modelReady = false;
@@ -85,6 +86,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onResume() {
         super.onResume();
+        updateCallAssistantStatus();
 
         if (waitingForOverlayPermission &&
                 (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))) {
@@ -155,6 +157,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         callAssist = button("📞 فعال‌سازی دستیار تماس Pixel", Color.rgb(22, 101, 52));
         callAssist.setOnClickListener(v -> enableCallAssistant());
         add(root, callAssist, 18);
+
+        callAssistStatus = tv("وضعیت دستیار تماس: در حال بررسی…", 14, muted, true);
+        callAssistStatus.setTextDirection(View.TEXT_DIRECTION_RTL);
+        add(root, callAssistStatus, 8);
+
+        Button testOverlay = button("🧪 تست پنل شناور الآن", Color.rgb(30, 64, 175));
+        testOverlay.setOnClickListener(v -> testOverlayNow());
+        add(root, testOverlay, 8);
 
         TextView assistInfo = tv("دستیار تماس هنگام زنگ خوردن یا تماس فعال، یک پنل شناور برای ترجمه آزمایشی، یادداشت و افزودن قرار به تقویم نشان می‌دهد. دسترسی مستقیم به صدای تماس سیم‌کارت در Android محدود است؛ ترجمه صوتی بسته به مدل گوشی ممکن است کار نکند.", 13, muted, false);
         assistInfo.setTextDirection(View.TEXT_DIRECTION_RTL);
@@ -361,12 +371,57 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
+    private void updateCallAssistantStatus() {
+        if (callAssistStatus == null) return;
+
+        boolean overlayOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+        boolean micOk = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        boolean phoneOk = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED;
+        boolean notifOk = Build.VERSION.SDK_INT < 33 ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+
+        String s = "وضعیت دستیار تماس:\n" +
+                (overlayOk ? "✅ نمایش روی برنامه‌ها\n" : "❌ نمایش روی برنامه‌ها\n") +
+                (micOk ? "✅ میکروفن\n" : "❌ میکروفن\n") +
+                (phoneOk ? "✅ وضعیت تماس\n" : "❌ وضعیت تماس\n") +
+                (notifOk ? "✅ اعلان‌ها" : "❌ اعلان‌ها");
+        callAssistStatus.setText(s);
+
+        if (overlayOk && micOk && phoneOk && notifOk) {
+            callAssist.setText("📞 دستیار تماس فعال/آماده");
+        } else {
+            callAssist.setText("📞 تکمیل فعال‌سازی دستیار تماس");
+        }
+    }
+
+    private void testOverlayNow() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "مجوز «Display over other apps» برای خود Lili Live Translate هنوز روشن نیست.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (!hasAllCallAssistantPermissions()) {
+            Toast.makeText(this, "اول مجوزهای دستیار تماس را کامل کن؛ وضعیت هر مجوز پایین دکمه نشان داده شده.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        startCallAssistantService();
+        Intent test = new Intent(this, CallAssistantService.class);
+        test.setAction("com.lili.livetranslate.TEST_OVERLAY");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(test);
+        } else {
+            startService(test);
+        }
+        Toast.makeText(this, "اگر مجوز Overlay درست باشد، باید همین الآن پنل تست ظاهر شود.", Toast.LENGTH_LONG).show();
+    }
+
     private void enableCallAssistant() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
             waitingForOverlayPermission = true;
             Toast.makeText(
                     this,
-                    "در صفحه بعد فقط Lili Live Translate را برای «Display over other apps» فعال کن. لازم نیست برای برنامه‌های دیگر چیزی را فعال کنی؛ بعد با Back برگرد، فعال‌سازی خودکار ادامه پیدا می‌کند.",
+                    "فقط سوییچ کنار «Lili Live Translate» را روشن کن. به برنامه‌های دیگر اجازه نده. بعد با Back به Lili برگرد.",
                     Toast.LENGTH_LONG
             ).show();
 
@@ -426,6 +481,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
         Toast.makeText(this, "دستیار تماس فعال شد ✓ حالا می‌توانی از برنامه خارج شوی.", Toast.LENGTH_LONG).show();
         if (callAssist != null) callAssist.setText("📞 دستیار تماس فعال است ✓");
+        updateCallAssistantStatus();
     }
 
     @Override
@@ -448,6 +504,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             } else {
                 Toast.makeText(this, "برای دستیار تماس باید مجوزهای درخواست‌شده را بدهی.", Toast.LENGTH_LONG).show();
             }
+            updateCallAssistantStatus();
         }
     }
 
