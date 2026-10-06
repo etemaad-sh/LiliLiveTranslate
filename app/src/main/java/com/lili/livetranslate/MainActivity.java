@@ -61,6 +61,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean listening = false;
     private boolean speaking = false;
     private String lastTranslation = "";
+    private boolean waitingForOverlayPermission = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,6 +74,23 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         initRecognizer();
         tts = new TextToSpeech(this, this);
         prepareTranslator();
+
+        if (getSharedPreferences("call_assistant", MODE_PRIVATE).getBoolean("enabled", false)) {
+            handler.postDelayed(() -> {
+                if (hasAllCallAssistantPermissions()) startCallAssistantService();
+            }, 500);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        if (waitingForOverlayPermission &&
+                (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this))) {
+            waitingForOverlayPermission = false;
+            handler.postDelayed(() -> continueCallAssistantActivation(), 250);
+        }
     }
 
     private void buildUi() {
@@ -345,14 +363,27 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void enableCallAssistant() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "اول اجازه نمایش روی برنامه‌های دیگر را برای Lili Live Translate فعال کن، بعد برگرد و دوباره این دکمه را بزن.", Toast.LENGTH_LONG).show();
-            Intent overlayIntent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName()));
+            waitingForOverlayPermission = true;
+            Toast.makeText(
+                    this,
+                    "در صفحه بعد فقط Lili Live Translate را برای «Display over other apps» فعال کن. لازم نیست برای برنامه‌های دیگر چیزی را فعال کنی؛ بعد با Back برگرد، فعال‌سازی خودکار ادامه پیدا می‌کند.",
+                    Toast.LENGTH_LONG
+            ).show();
+
+            Intent overlayIntent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())
+            );
             startActivity(overlayIntent);
             return;
         }
 
+        continueCallAssistantActivation();
+    }
+
+    private void continueCallAssistantActivation() {
         ArrayList<String> needed = new ArrayList<>();
+
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.RECORD_AUDIO);
         }
@@ -372,6 +403,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         startCallAssistantService();
     }
 
+    private boolean hasAllCallAssistantPermissions() {
+        boolean overlayOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+        boolean micOk = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        boolean phoneOk = checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED;
+        boolean notifOk = Build.VERSION.SDK_INT < 33 ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+        return overlayOk && micOk && phoneOk && notifOk;
+    }
+
     private void startCallAssistantService() {
         Intent service = new Intent(this, CallAssistantService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -379,7 +419,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         } else {
             startService(service);
         }
-        Toast.makeText(this, "دستیار تماس فعال شد ✓", Toast.LENGTH_LONG).show();
+        getSharedPreferences("call_assistant", MODE_PRIVATE)
+                .edit()
+                .putBoolean("enabled", true)
+                .apply();
+
+        Toast.makeText(this, "دستیار تماس فعال شد ✓ حالا می‌توانی از برنامه خارج شوی.", Toast.LENGTH_LONG).show();
         if (callAssist != null) callAssist.setText("📞 دستیار تماس فعال است ✓");
     }
 
@@ -396,8 +441,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     break;
                 }
             }
-            if (ok) startCallAssistantService();
-            else Toast.makeText(this, "برای دستیار تماس باید مجوزهای درخواست‌شده را بدهی.", Toast.LENGTH_LONG).show();
+            if (ok && hasAllCallAssistantPermissions()) {
+                startCallAssistantService();
+            } else if (ok) {
+                continueCallAssistantActivation();
+            } else {
+                Toast.makeText(this, "برای دستیار تماس باید مجوزهای درخواست‌شده را بدهی.", Toast.LENGTH_LONG).show();
+            }
         }
     }
 
